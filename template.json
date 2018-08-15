@@ -1,0 +1,163 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "uniqueResourceNameSuffix": {
+            "type": "string",
+            "defaultValue": "[uniqueString(subscription().subscriptionId, resourceGroup().id)]",
+            "metadata": {
+                "description": "The suffix to add to resource names that require global uniqueness."
+            }
+        },
+        "functionFile": {
+            "type": "string",
+            "metadata": {
+                "description": "The contents of the function's `run.csx` file."
+            }
+        },
+        "applicationInsightsLocation": {
+            "type": "string",
+            "defaultValue": "westus2",
+            "allowedValues": [
+                "eastus",
+                "southcentralus",
+                "westus2",
+                "northeurope",
+                "westeurope",
+                "southeastasia"
+            ],
+            "metadata": {
+                "description": "The location in which to deploy Application Insights, since it supports a subset of Azure regions."
+            }
+        }
+    },
+    "variables": {        
+        "functionsAppServicePlanName": "FunctionAppServicePlan",
+        "functionsAppName": "[concat('fn', parameters('uniqueResourceNameSuffix'))]",
+        "functionName": "MyFunction",
+
+        "functionsStorageAccountName": "[variables('functionsAppName')]",
+        "functionsStorageAccountResourceId": "[resourceId('Microsoft.Storage/storageAccounts', variables('functionsStorageAccountName'))]",
+
+        "applicationInsightsName": "FunctionAppInsights"
+    },
+    "resources": [
+        {
+            "name": "[variables('functionsStorageAccountName')]",
+            "type": "Microsoft.Storage/storageAccounts",
+            "location": "[resourceGroup().location]",
+            "apiVersion": "2018-02-01",
+            "sku": {
+                "name": "Standard_LRS"
+            },
+            "kind": "StorageV2",
+            "properties": {
+                "accessTier": "Hot",
+                "supportsHttpsTrafficOnly": true,
+                "encryption": {
+                    "services": {
+                        "blob": {
+                            "enabled": true
+                        }
+                    },
+                    "keySource": "Microsoft.Storage"
+                }
+            }
+        },
+
+        {
+            "name": "[variables('functionsAppServicePlanName')]",
+            "type": "Microsoft.Web/serverfarms",
+            "location": "[resourceGroup().location]",
+            "apiVersion": "2016-09-01",
+            "sku": {
+                "name": "Y1",
+                "tier": "Dynamic",
+                "size": "Y1",
+                "family": "Y",
+                "capacity": 0
+            },
+            "kind": "functionapp",
+            "properties": {
+                "workerTierName": null,
+                "adminSiteName": null,
+                "hostingEnvironmentProfile": null,
+                "perSiteScaling": false,
+                "reserved": false,
+                "targetWorkerCount": 0,
+                "targetWorkerSizeId": 0
+            }
+        },
+        {
+            "name": "[variables('functionsAppName')]",
+            "type": "Microsoft.Web/sites",
+            "location": "[resourceGroup().location]",
+            "apiVersion": "2016-08-01",
+            "kind": "functionapp",
+            "properties": {
+                "enabled": true,
+                "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('functionsAppServicePlanName'))]",
+                "reserved": false,
+                "siteConfig": {
+                    "ftpsState": "Disabled"
+                }
+            },
+            "resources": [
+                {
+                    "name": "[variables('functionName')]",
+                    "type": "functions",
+                    "apiVersion": "2015-08-01",
+                    "properties": {
+                        "config": {
+                            "bindings": [
+                                {
+                                    "type": "httpTrigger",
+                                    "direction": "in",
+                                    "name": "req",
+                                    "methods": [
+                                      "get"
+                                    ]
+                                  }
+                            ],
+                            "disabled": false
+                        },
+                        "files": {
+                            "run.csx": "[parameters('functionFile')]"
+                        }
+                    },
+                    "dependsOn": [
+                        "[resourceId('Microsoft.Web/sites', variables('functionsAppName'))]"
+                    ]
+                },
+                {
+                    "name": "appsettings",
+                    "type": "config",
+                    "apiVersion": "2014-11-01",
+                    "properties": {
+                        "APPINSIGHTS_INSTRUMENTATIONKEY": "[reference(resourceId('Microsoft.Insights/components', variables('applicationInsightsName')), '2014-04-01').InstrumentationKey]",
+                        "AzureWebJobsDashboard": "[concat('DefaultEndpointsProtocol=https;AccountName=', variables('functionsStorageAccountName'), ';AccountKey=', listKeys(variables('functionsStorageAccountResourceId'),'2015-05-01-preview').key1)]",
+                        "AzureWebJobsStorage": "[concat('DefaultEndpointsProtocol=https;AccountName=', variables('functionsStorageAccountName'), ';AccountKey=', listKeys(variables('functionsStorageAccountResourceId'),'2015-05-01-preview').key1)]"
+                    },
+                    "dependsOn": [
+                        "[resourceId('Microsoft.Web/sites', variables('functionsAppName'))]",
+                        "[resourceId('Microsoft.Insights/components', variables('applicationInsightsName'))]"
+                    ]
+                }
+            ],
+            "dependsOn": [
+                "[resourceId('Microsoft.Web/serverfarms', variables('functionsAppServicePlanName'))]"
+            ]
+        },
+
+        {
+            "name": "[variables('applicationInsightsName')]",
+            "type": "Microsoft.Insights/components",
+            "apiVersion": "2014-04-01",
+            "location": "[parameters('applicationInsightsLocation')]",
+            "kind": "other",
+            "properties": {
+                "applicationId": "[variables('applicationInsightsName')]"
+            }
+        }
+    ]
+}
